@@ -1,0 +1,147 @@
+name: solana-gem-filter
+
+x-app: &app
+  image: ${APP_IMAGE:-solana-gem-filter:local}
+  env_file: ["${ENV_FILE:-.env}"]
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks: [backend]
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+
+services:
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  api:
+    <<: *app
+    build:
+      context: .
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12.10-slim-bookworm}
+    command: ["gem-filter-api"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    ports: ["${API_BIND:-127.0.0.1}:8080:8080"]
+
+  worker:
+    <<: *app
+    command: ["gem-filter-worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app
+    command: ["gem-filter-scheduler"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  telegram-reader:
+    <<: *app
+    command: ["gem-filter-reader"]
+    healthcheck:
+      disable: true
+    volumes:
+      - telegram_session:/run/secrets
+    depends_on:
+      telegram-session-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+
+  telegram-session-init:
+    image: ${APP_IMAGE:-solana-gem-filter:local}
+    user: root
+    command:
+      - sh
+      - -c
+      - chown app:app /run/secrets && chmod 700 /run/secrets
+    restart: "no"
+    read_only: true
+    network_mode: none
+    tmpfs: [/tmp]
+    volumes:
+      - telegram_session:/run/secrets
+    security_opt: [no-new-privileges:true]
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17.2-alpine}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gem_filter}
+      POSTGRES_USER: ${POSTGRES_USER:-gem_filter}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt: [no-new-privileges:true]
+
+  prometheus:
+    profiles: ["observability"]
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.1.0}
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=30d"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports: ["${OBS_BIND:-127.0.0.1}:9090:9090"]
+    networks: [backend]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    profiles: ["observability"]
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.4.0}
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    secrets: [grafana_password]
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports: ["${OBS_BIND:-127.0.0.1}:3000:3000"]
+    networks: [backend]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+
+networks:
+  backend:
+    internal: false
+
+volumes:
+  postgres_data:
+  telegram_session:
+  prometheus_data:
+  grafana_data:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  grafana_password:
+    file: ./secrets/grafana_password.txt

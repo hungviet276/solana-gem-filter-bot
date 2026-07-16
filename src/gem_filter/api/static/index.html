@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Solana Gem Filter</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <span class="eyebrow">PAPER ANALYTICS</span>
+      <h1>Solana Gem Filter</h1>
+    </div>
+    <div class="status"><span class="dot"></span><span id="health">Đang kiểm tra</span></div>
+  </header>
+
+  <main>
+    <section id="login-panel" class="login card">
+      <div>
+        <p class="eyebrow">QUYỀN TRUY CẬP</p>
+        <h2>Đăng nhập dashboard</h2>
+        <p class="muted">Theo dõi tín hiệu, scoring và paper outcome. Hệ thống không giao dịch.</p>
+      </div>
+      <form id="login-form">
+        <label>Email<input id="email" type="email" autocomplete="username" required></label>
+        <label>Mật khẩu<input id="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Đăng nhập</button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="dashboard" hidden>
+      <div class="toolbar">
+        <div>
+          <p class="eyebrow">LIVE OVERVIEW</p>
+          <h2>Chất lượng tín hiệu</h2>
+        </div>
+        <div class="actions">
+          <select id="status-filter" aria-label="Lọc trạng thái">
+            <option value="">Tất cả trạng thái</option>
+            <option>WATCH</option><option>EARLY</option><option>STRONG</option>
+            <option>CONFIRMED</option><option>EXPIRED</option><option>REJECTED</option>
+          </select>
+          <button class="secondary" id="refresh">Làm mới</button>
+          <button class="quiet" id="logout">Đăng xuất</button>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <article class="card metric"><span>Call đã ghi nhận</span><strong id="sample-size">—</strong><small>Sample size</small></article>
+        <article class="card metric"><span>Strong coverage</span><strong id="coverage">—</strong><small>Tỷ lệ alert / call</small></article>
+        <article class="card metric accent"><span>Precision x2</span><strong id="precision-x2">—</strong><small id="precision-warning">Đủ quan sát</small></article>
+        <article class="card metric"><span>Precision x5</span><strong id="precision-x5">—</strong><small>Paper outcome</small></article>
+      </div>
+
+      <section class="card table-card">
+        <div class="section-title"><div><p class="eyebrow">TOKEN STREAM</p><h3>Call gần nhất</h3></div><span id="token-count" class="pill">0</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Token</th><th>Trạng thái</th><th>Call MC</th><th>Holders</th><th>Rule</th><th>Thời gian</th></tr></thead>
+            <tbody id="tokens"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <aside id="detail" class="drawer" hidden aria-live="polite">
+        <button id="close-detail" class="quiet close" aria-label="Đóng">×</button>
+        <div id="detail-content"></div>
+      </aside>
+    </section>
+  </main>
+  <footer>Read-only analytics · Paper tracking · Không lưu private key · Không tự động mua/bán</footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
+

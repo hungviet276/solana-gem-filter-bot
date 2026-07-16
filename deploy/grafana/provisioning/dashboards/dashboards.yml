@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: Solana Gem Filter
+    folder: Gem Filter
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards
+

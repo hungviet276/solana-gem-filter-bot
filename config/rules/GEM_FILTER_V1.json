@@ -1,0 +1,15 @@
+{
+  "version": "GEM_FILTER_V1",
+  "max_snapshot_age_seconds": 20,
+  "expiry_seconds": 3600,
+  "mc_discrepancy_warn_pct": "30",
+  "min_liquidity_usd": "5000",
+  "dev_hard_limit_pct": "10",
+  "poor_hard_limit_pct": null,
+  "soft_chase_ratio": "1.5",
+  "hard_chase_ratio": "2.0",
+  "watch_threshold": 15,
+  "early_threshold": 40,
+  "strong_threshold": 55
+}
+

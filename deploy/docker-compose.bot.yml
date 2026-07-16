@@ -1,0 +1,9 @@
+# Bot-only deployment: no host dashboard/API port and no observability services.
+# PostgreSQL, the internal API, worker, scheduler and Telegram reader remain core services.
+services:
+  api:
+    ports: !reset []
+
+  worker:
+    environment:
+      PUBLIC_BASE_URL: ""
