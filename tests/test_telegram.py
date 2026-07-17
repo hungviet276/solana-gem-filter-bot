@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -7,14 +9,23 @@ from gem_filter.infrastructure.telegram import TelegramAlertClient
 
 
 @pytest.mark.asyncio
-async def test_alert_includes_latest_x_search_for_contract() -> None:
+async def test_alert_includes_research_links_for_contract() -> None:
     contract = "57NcABSX9VWADXUrijtQcK7Dh8khZJa3Er2xVKA2pump"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = request.read()
+        payload = json.loads(request.read())
         assert request.url.path.endswith("/sendMessage")
-        assert b'"text":"Search X/Twitter"' in payload
-        assert b'"url":"https://x.com/search?q=' + contract.encode() + b'&f=live"' in payload
+        research_buttons = payload["reply_markup"]["inline_keyboard"][1]
+        assert research_buttons == [
+            {
+                "text": "Search X/Twitter",
+                "url": f"https://x.com/search?q={contract}&f=live",
+            },
+            {
+                "text": "Check Mevx",
+                "url": f"https://mevx.io/solana/{contract}",
+            },
+        ]
         return httpx.Response(200, json={"ok": True, "result": {"message_id": 123}})
 
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))

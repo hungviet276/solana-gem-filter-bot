@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -36,7 +36,11 @@ class TelegramAlertClient:
                 {
                     "text": "Search X/Twitter",
                     "url": f"https://x.com/search?{urlencode({'q': contract, 'f': 'live'})}",
-                }
+                },
+                {
+                    "text": "Check Mevx",
+                    "url": f"https://mevx.io/solana/{quote(contract, safe='')}",
+                },
             ]
         )
         if details_url:
