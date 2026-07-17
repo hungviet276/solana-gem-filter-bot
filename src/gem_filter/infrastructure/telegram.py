@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -30,6 +31,14 @@ class TelegramAlertClient:
         if chart_url:
             row.append({"text": "Chart", "url": chart_url})
         keyboard.append(row)
+        keyboard.append(
+            [
+                {
+                    "text": "Search X/Twitter",
+                    "url": f"https://x.com/search?{urlencode({'q': contract, 'f': 'live'})}",
+                }
+            ]
+        )
         if details_url:
             keyboard.append([{"text": "Chi tiết", "url": details_url}])
         response = await self._client.post(
