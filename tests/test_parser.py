@@ -17,12 +17,11 @@ class ParserTests(unittest.TestCase):
     def test_call_extracts_all_supported_fields(self) -> None:
         raw = f"""🚀 $GEM (Gem Token)
 {CONTRACT}
-MC: $40K · Age: 8m
-Holders: 150 · Top10: 18%
-Bundled: 3% · First50: 55%
-Jeeters: 4% · QuickFlip: 2%
-Snipers: 1% · Insiders: 2%
-Dev: 0% · Safe: 40% · Poor: 3%"""
+📊 MC: $40K · ⏱ Age: 8m · 👪 Holders: 150
+🔟 Top10: 18% · 📦 Bundled: 3% · 🏁 First50: 55%
+☢️ Jeeters: 4% · 🔄 QuickFlip: 2% · 🎯 Snipers: 1%
+🐁 Insiders: 2% · 👤 Dev: 0%
+✅ Safe: 40% · ⚠️ Poor: 3%"""
         result = parse_message(raw)
         self.assertEqual(result.event_type, EventType.CALL)
         self.assertEqual(result.payload["contract"], CONTRACT)
@@ -30,7 +29,18 @@ Dev: 0% · Safe: 40% · Poor: 3%"""
         self.assertEqual(result.payload["call_mc_usd"], "40000")
         self.assertEqual(result.payload["age_seconds"], 480)
         self.assertEqual(result.payload["holders"], 150)
+        self.assertEqual(result.payload["top10_pct"], "18")
+        self.assertEqual(result.payload["poor_pct"], "3")
         self.assertEqual(result.warnings, ())
+
+    def test_call_header_keeps_unicode_and_symbol_tickers(self) -> None:
+        for ticker in ("©AT", "るのん", "Emote+", "ピングー", "Dog-001"):
+            with self.subTest(ticker=ticker):
+                result = parse_message(
+                    f"🚀 ${ticker} (Token Name)\n{CONTRACT}\n📊 MC: $40K · 👪 Holders: 10"
+                )
+                self.assertEqual(result.event_type, EventType.CALL)
+                self.assertEqual(result.payload["ticker"], ticker.upper())
 
     def test_missing_field_is_warning_not_zero(self) -> None:
         result = parse_message(f"$GEM\n{CONTRACT}\nMC: $40K\nHolders: 10")
@@ -45,10 +55,19 @@ Dev: 0% · Safe: 40% · Poor: 3%"""
         self.assertEqual(result.payload["whale_mc_usd"], "48700.0")
 
     def test_multiple_result_x2_to_x99(self) -> None:
-        result = parse_message("Just did x99 | Peak $2.5M after 8m")
+        for multiple in (2, 9, 10, 11, 19, 20, 99, 100):
+            with self.subTest(multiple=multiple):
+                result = parse_message(f"Just did x{multiple} | Peak $2.5M after 8m")
+                self.assertEqual(result.event_type, EventType.MULTIPLE_RESULT)
+                self.assertEqual(result.payload["multiple"], multiple)
+                self.assertEqual(result.payload["peak_mc_usd"], "2500000.0")
+
+    def test_multiple_arrow_format_extracts_target_mc(self) -> None:
+        result = parse_message("🚀 $BUSDY x2 🚀\n💵 MC: $64.1K → $134.3K in 6m")
         self.assertEqual(result.event_type, EventType.MULTIPLE_RESULT)
-        self.assertEqual(result.payload["multiple"], 99)
-        self.assertEqual(result.payload["peak_mc_usd"], "2500000.0")
+        self.assertEqual(result.payload["multiple"], 2)
+        self.assertEqual(result.payload["peak_mc_usd"], "134300.0")
+        self.assertEqual(result.payload["elapsed_seconds"], 360)
 
     def test_unknown_format_is_preserved_for_review(self) -> None:
         result = parse_message("a format we do not recognize")

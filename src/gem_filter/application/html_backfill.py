@@ -85,7 +85,10 @@ def _last_int(value: str) -> int | None:
 def _parse_export_date(value: str | None) -> datetime:
     if not value:
         return datetime.now(tz=UTC)
-    cleaned = value.strip().replace(" UTC+07:00", "+07:00").replace(" UTC", "+00:00")
+    cleaned = value.strip()
+    cleaned = re.sub(r"\s+UTC(?=[+-][0-9]{2}:[0-9]{2}$)", " ", cleaned)
+    if cleaned.endswith(" UTC"):
+        cleaned = f"{cleaned[:-4]} +00:00"
     for pattern in (None, "%d.%m.%Y %H:%M:%S %z", "%d.%m.%Y %H:%M:%S"):
         try:
             parsed = (

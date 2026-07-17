@@ -50,6 +50,22 @@ class RuleConfig:
 
 DEFAULT_RULE = RuleConfig()
 
+REQUIRED_SOURCE_METRICS = (
+    "call_mc_usd",
+    "age_seconds",
+    "holders",
+    "top10_pct",
+    "bundled_pct",
+    "first50_pct",
+    "jeeters_pct",
+    "quickflip_pct",
+    "snipers_pct",
+    "insiders_pct",
+    "dev_pct",
+    "safe_pct",
+    "poor_pct",
+)
+
 
 def _decimal(value: Decimal | None) -> str | None:
     return format(value, "f") if value is not None else None
@@ -128,6 +144,17 @@ def evaluate(
     valid_contract = bool(SOLANA_ADDRESS_RE.fullmatch(token.contract))
     checks.append(HardCheck("INVALID_CONTRACT", valid_contract, {"contract": token.contract}))
 
+    missing_source_metrics = [
+        field for field in REQUIRED_SOURCE_METRICS if getattr(token, field) is None
+    ]
+    checks.append(
+        HardCheck(
+            "SOURCE_DATA_INCOMPLETE",
+            not missing_source_metrics,
+            {"missing_fields": missing_source_metrics},
+        )
+    )
+
     market_fresh = (
         visible_market is not None
         and visible_market.age_seconds(evaluation_time) <= rule.max_snapshot_age_seconds
@@ -157,7 +184,7 @@ def evaluate(
         )
     )
 
-    dev_ok = token.dev_pct is None or token.dev_pct < rule.dev_hard_limit_pct
+    dev_ok = token.dev_pct is not None and token.dev_pct < rule.dev_hard_limit_pct
     checks.append(
         HardCheck(
             "DEV_HIGH",
@@ -198,7 +225,7 @@ def evaluate(
     ratio: Decimal | None = None
     if verified_mc and token.call_mc_usd:
         ratio = verified_mc / token.call_mc_usd
-    chase_ok = ratio is None or ratio <= rule.hard_chase_ratio
+    chase_ok = ratio is not None and ratio <= rule.hard_chase_ratio
     checks.append(
         HardCheck(
             "ANTI_CHASE_HARD",

@@ -19,9 +19,16 @@ class BacktestTests(unittest.TestCase):
             call_mc_usd=Decimal("10000"),
             age_seconds=60,
             holders=100,
+            top10_pct=Decimal("18"),
+            bundled_pct=Decimal("3"),
             first50_pct=Decimal("60"),
+            jeeters_pct=Decimal("4"),
+            quickflip_pct=Decimal("2"),
+            snipers_pct=Decimal("1"),
+            insiders_pct=Decimal("2"),
             safe_pct=Decimal("40"),
             dev_pct=Decimal("0"),
+            poor_pct=Decimal("3"),
         )
         snapshot = MarketSnapshot(
             at, at, "test", "pair", "raydium", Decimal("10000"), Decimal("10000"), Decimal("10000")

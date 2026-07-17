@@ -11,7 +11,7 @@ from typing import Any
 from .models import EventType, ParsedEvent
 from .rules import SOLANA_ADDRESS_RE
 
-PARSER_VERSION = "gemtools-parser-1.0.0"
+PARSER_VERSION = "gemtools-parser-1.1.0"
 
 _WHALE_RE = re.compile(
     r"(?:🐋\s*)?\$?(?P<label>[\w .'-]+?)\s+whale\s+bought\s+"
@@ -19,15 +19,20 @@ _WHALE_RE = re.compile(
     re.IGNORECASE,
 )
 _MULTIPLE_RE = re.compile(
-    r"(?:just\s+did\s+|(?:^|\s)x)\s*x?(?P<multiple>[2-9][0-9]?)\b", re.IGNORECASE
+    r"(?:just\s+did\s+|(?:^|\s)x)\s*x?(?P<multiple>(?:[2-9]|[1-9][0-9]+))\b",
+    re.IGNORECASE,
 )
-_PEAK_RE = re.compile(r"peak\s*\$?\s*(?P<value>[0-9][0-9.,]*\s*[KMB]?)", re.IGNORECASE)
+_PEAK_RE = re.compile(
+    r"(?:peak\s*\$?\s*|(?:→|->)\s*\$?\s*)"
+    r"(?P<value>[0-9][0-9.,]*\s*[KMB]?)",
+    re.IGNORECASE,
+)
 _CONTRACT_LABEL_RE = re.compile(
     r"(?:contract|ca)\s*[:：]\s*(?P<contract>[1-9A-HJ-NP-Za-km-z]{32,64})",
     re.IGNORECASE,
 )
 _CALL_HEADER_RE = re.compile(
-    r"(?:🚀\s*)?\$?(?P<ticker>[A-Za-z0-9_]{1,32})\s*(?:\((?P<name>[^)]+)\))?",
+    r"^\s*(?:🚀\s*)?\$?(?P<ticker>[^\s(]{1,64})\s*(?:\((?P<name>[^)]+)\))?",
     re.IGNORECASE,
 )
 
@@ -134,7 +139,8 @@ def _extract_contract(text: str) -> str | None:
 def _find_field(text: str, aliases: tuple[str, ...]) -> str | None:
     alias_pattern = "|".join(re.escape(alias) for alias in aliases)
     match = re.search(
-        rf"(?:^|[\n·|])\s*(?:{alias_pattern})\s*[:：]\s*([^\n·|]+)",
+        rf"(?:^|[\n·|])\s*[^A-Za-z0-9_$]*\s*"
+        rf"(?:{alias_pattern})\s*[:：]\s*([^\n·|]+)",
         text,
         re.IGNORECASE,
     )

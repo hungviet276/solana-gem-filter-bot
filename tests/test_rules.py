@@ -23,7 +23,10 @@ def token(**overrides) -> TokenCall:
         "top10_pct": Decimal("18"),
         "bundled_pct": Decimal("3"),
         "first50_pct": Decimal("55"),
+        "jeeters_pct": Decimal("4"),
+        "quickflip_pct": Decimal("2"),
         "snipers_pct": Decimal("2"),
+        "insiders_pct": Decimal("2"),
         "dev_pct": Decimal("0"),
         "safe_pct": Decimal("40"),
         "poor_pct": Decimal("1"),
@@ -134,6 +137,17 @@ class RuleTests(unittest.TestCase):
         result = evaluate(sparse, market(BASE), (), (), evaluation_time=BASE)
         self.assertNotIn("GENESIS", result.reason_codes)
         self.assertNotIn("SAFE_LOW", result.reason_codes)
+        self.assertTrue(result.hard_reject)
+        self.assertIn("SOURCE_DATA_INCOMPLETE", result.reason_codes)
+
+    def test_missing_dev_and_call_mc_fail_closed(self) -> None:
+        result = evaluate(
+            token(dev_pct=None, call_mc_usd=None), market(BASE), (), (), evaluation_time=BASE
+        )
+        self.assertTrue(result.hard_reject)
+        self.assertIn("SOURCE_DATA_INCOMPLETE", result.reason_codes)
+        self.assertIn("DEV_HIGH", result.reason_codes)
+        self.assertIn("ANTI_CHASE_HARD", result.reason_codes)
 
     def test_dev_limit_is_hard_reject(self) -> None:
         result = evaluate(token(dev_pct=Decimal("10")), market(BASE), (), (), evaluation_time=BASE)
