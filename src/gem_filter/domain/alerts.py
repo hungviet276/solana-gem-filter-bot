@@ -57,6 +57,20 @@ def render_alert(
                 f"• {whale.normalized_label.upper()}: {whale.sol_amount or 'N/A'} SOL "
                 f"@ {_money(whale.whale_mc_usd)} — +{elapsed}m"
             )
+        flow = next(
+            (
+                component
+                for component in evaluation.components
+                if component.code == "V2_WHALE_FLOW_GATE"
+            ),
+            None,
+        )
+        if flow:
+            window_minutes = int(flow.evidence["window_seconds"]) // 60
+            lines.append(
+                f"• Total flow: {flow.evidence['sol_amount']} SOL/{window_minutes}m "
+                f"| Distinct: {flow.evidence['distinct_count']}"
+            )
     if positive or negative or failed:
         lines.extend(["", "WHY"])
         lines.extend(f"+ {item.code} ({item.value:+d})" for item in positive)

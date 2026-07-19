@@ -25,7 +25,7 @@ from gem_filter.domain.models import (
     WhaleEvent,
 )
 from gem_filter.domain.parser import PARSER_VERSION, parse_message
-from gem_filter.domain.rules import RuleConfig, evaluate
+from gem_filter.domain.rules import RuleConfig, builtin_rule, evaluate
 from gem_filter.domain.state import status_for_decision, transition
 from gem_filter.infrastructure.database import (
     AlertRecord,
@@ -74,7 +74,7 @@ class TelegramEnvelope:
 
 def _rule_from_payload(payload: dict[str, Any] | None, version: str) -> RuleConfig:
     if not payload:
-        return RuleConfig(version=version)
+        return builtin_rule(version)
     decimal_fields = {
         "mc_discrepancy_warn_pct",
         "min_liquidity_usd",
@@ -82,6 +82,10 @@ def _rule_from_payload(payload: dict[str, Any] | None, version: str) -> RuleConf
         "poor_hard_limit_pct",
         "soft_chase_ratio",
         "hard_chase_ratio",
+        "min_whale_flow_sol",
+        "quality_top10_min_pct",
+        "quality_top10_max_pct",
+        "genesis_first50_min_pct",
     }
     values: dict[str, Any] = {"version": version}
     allowed = RuleConfig.__dataclass_fields__.keys()
@@ -386,7 +390,7 @@ class ProcessingService:
             .limit(1)
         )
         if record is None:
-            return RuleConfig(version=self.settings.active_rule_version)
+            return builtin_rule(self.settings.active_rule_version)
         return _rule_from_payload(record.config, record.version)
 
     async def _process_call(

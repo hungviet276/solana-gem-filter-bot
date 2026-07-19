@@ -1,0 +1,23 @@
+{
+  "version": "GEM_FILTER_V2_FLOW_8",
+  "strategy": "FLOW_GATE_V2",
+  "max_snapshot_age_seconds": 20,
+  "expiry_seconds": 3600,
+  "mc_discrepancy_warn_pct": "30",
+  "min_liquidity_usd": "5000",
+  "dev_hard_limit_pct": "10",
+  "poor_hard_limit_pct": null,
+  "soft_chase_ratio": "1.5",
+  "hard_chase_ratio": "2.0",
+  "watch_threshold": 15,
+  "early_threshold": 40,
+  "strong_threshold": 55,
+  "whale_window_seconds": 900,
+  "min_whale_flow_sol": "8",
+  "quality_top10_min_pct": "20",
+  "quality_top10_max_pct": "25",
+  "genesis_max_age_seconds": 600,
+  "genesis_max_holders": 200,
+  "genesis_first50_min_pct": "50",
+  "confirmation_distinct_whales": 2
+}

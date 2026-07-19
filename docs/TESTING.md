@@ -12,7 +12,12 @@
 
 ## Mapping test nghiệp vụ SRS
 
-`tests/test_rules.py` bao phủ TC-001..TC-006, TC-008 và TC-011; parser/state/outbox integration bao phủ phần còn lại. `TC-009` được bảo vệ bằng unique alert/outbox key; `TC-010` bằng rule gắn cố định trên call; `TC-012` bằng raw revision và audit reparse.
+`tests/test_rules.py` bao phủ TC-001..TC-006, TC-008 và TC-011.
+`tests/test_rules_v2.py` bao phủ Flow-8, Top10/Genesis gate, whale lặp, multi-whale,
+before-x2, cửa sổ 15 phút và bốn case HOME/CHARLOTTE/SPY/BTC.
+Parser/state/outbox integration bao phủ phần còn lại. `TC-009` được bảo vệ bằng unique
+alert/outbox key; `TC-010` bằng rule gắn cố định trên call; `TC-012` bằng raw revision và audit
+reparse.
 
 ## Lệnh CI
 

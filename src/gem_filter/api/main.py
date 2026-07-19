@@ -54,7 +54,7 @@ from gem_filter.domain.models import (
     TokenStatus,
     WhaleEvent,
 )
-from gem_filter.domain.rules import DEFAULT_RULE, evaluate
+from gem_filter.domain.rules import BUILTIN_RULES, DEFAULT_RULE, evaluate
 from gem_filter.domain.state import transition
 from gem_filter.infrastructure.database import (
     AlertRecord,
@@ -86,25 +86,39 @@ STATIC_DIR = Path(__file__).with_name("static")
 
 
 async def _bootstrap(session: AsyncSession, settings: Settings) -> None:
-    default_rule = await session.scalar(
-        select(RuleVersion).where(RuleVersion.version == DEFAULT_RULE.version)
+    published_rule = await session.scalar(
+        select(RuleVersion).where(RuleVersion.status == "PUBLISHED").limit(1)
     )
-    if default_rule is None:
+    bootstrap_published_version = (
+        settings.active_rule_version
+        if settings.active_rule_version in BUILTIN_RULES
+        else DEFAULT_RULE.version
+    )
+    has_published_rule = published_rule is not None
+    for builtin in BUILTIN_RULES.values():
+        existing = await session.scalar(
+            select(RuleVersion).where(RuleVersion.version == builtin.version)
+        )
+        if existing is not None:
+            continue
         config = {
             key: str(value) if isinstance(value, Decimal) else value
-            for key, value in asdict(DEFAULT_RULE).items()
+            for key, value in asdict(builtin).items()
             if key != "version"
         }
+        publish = not has_published_rule and builtin.version == bootstrap_published_version
         session.add(
             RuleVersion(
-                version=DEFAULT_RULE.version,
-                status="PUBLISHED",
+                version=builtin.version,
+                status="PUBLISHED" if publish else "ARCHIVED",
                 config=config,
                 shadow=False,
-                published_at=datetime.now(tz=UTC),
+                published_at=datetime.now(tz=UTC) if publish else None,
                 created_by="bootstrap",
             )
         )
+        if publish:
+            has_published_rule = True
     source_ids = settings.source_id_set
     if not source_ids and settings.app_env in {"dev", "test"}:
         source_ids = {0}

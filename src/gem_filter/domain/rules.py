@@ -25,6 +25,7 @@ SOLANA_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,64}$")
 @dataclass(frozen=True, slots=True)
 class RuleConfig:
     version: str = "GEM_FILTER_V1"
+    strategy: str = "V1_SCORE"
     max_snapshot_age_seconds: int = 20
     expiry_seconds: int = 3600
     mc_discrepancy_warn_pct: Decimal = Decimal("30")
@@ -36,19 +37,61 @@ class RuleConfig:
     watch_threshold: int = 15
     early_threshold: int = 40
     strong_threshold: int = 55
+    whale_window_seconds: int = 900
+    min_whale_flow_sol: Decimal = Decimal("8")
+    quality_top10_min_pct: Decimal = Decimal("20")
+    quality_top10_max_pct: Decimal = Decimal("25")
+    genesis_max_age_seconds: int = 600
+    genesis_max_holders: int = 200
+    genesis_first50_min_pct: Decimal = Decimal("50")
+    confirmation_distinct_whales: int = 2
 
     def __post_init__(self) -> None:
+        if self.strategy not in {"V1_SCORE", "FLOW_GATE_V2"}:
+            raise ValueError("unsupported rule strategy")
         if self.max_snapshot_age_seconds <= 0 or self.expiry_seconds <= 0:
             raise ValueError("snapshot age and expiry must be positive")
+        if self.whale_window_seconds <= 0:
+            raise ValueError("whale window must be positive")
+        if self.min_whale_flow_sol <= 0:
+            raise ValueError("minimum whale flow must be positive")
+        if self.confirmation_distinct_whales < 2:
+            raise ValueError("confirmation requires at least two distinct whales")
         if not 0 <= self.watch_threshold <= self.early_threshold <= self.strong_threshold <= 100:
             raise ValueError("decision thresholds must be ordered within 0..100")
         if self.soft_chase_ratio >= self.hard_chase_ratio:
             raise ValueError("soft chase ratio must be lower than hard chase ratio")
         if not Decimal("0") <= self.dev_hard_limit_pct <= Decimal("100"):
             raise ValueError("dev hard limit must be within 0..100")
+        if not (
+            Decimal("0")
+            <= self.quality_top10_min_pct
+            <= self.quality_top10_max_pct
+            <= Decimal("100")
+        ):
+            raise ValueError("quality Top10 range must be ordered within 0..100")
+        if self.genesis_max_age_seconds <= 0 or self.genesis_max_holders <= 0:
+            raise ValueError("genesis limits must be positive")
+        if not Decimal("0") <= self.genesis_first50_min_pct <= Decimal("100"):
+            raise ValueError("genesis First50 minimum must be within 0..100")
 
 
-DEFAULT_RULE = RuleConfig()
+V1_RULE = RuleConfig()
+FLOW_8_RULE = RuleConfig(
+    version="GEM_FILTER_V2_FLOW_8",
+    strategy="FLOW_GATE_V2",
+)
+DEFAULT_RULE = V1_RULE
+BUILTIN_RULES = {
+    V1_RULE.version: V1_RULE,
+    FLOW_8_RULE.version: FLOW_8_RULE,
+}
+
+
+def builtin_rule(version: str) -> RuleConfig:
+    rule = BUILTIN_RULES.get(version)
+    return rule if rule is not None else RuleConfig(version=version)
+
 
 REQUIRED_SOURCE_METRICS = (
     "call_mc_usd",
@@ -235,28 +278,30 @@ def evaluate(
     )
 
     hard_reject = any(not check.passed for check in checks)
+    is_flow_gate = rule.strategy == "FLOW_GATE_V2"
 
     genesis = (
         token.age_seconds is not None
-        and token.age_seconds <= 600
+        and token.age_seconds <= rule.genesis_max_age_seconds
         and token.holders is not None
-        and token.holders <= 200
+        and token.holders <= rule.genesis_max_holders
         and token.first50_pct is not None
-        and token.first50_pct >= Decimal("50")
+        and token.first50_pct >= rule.genesis_first50_min_pct
     )
     if genesis:
         structures.append("GENESIS")
-        components.append(
-            ScoreComponent(
-                "GENESIS",
-                25,
-                {
-                    "age_seconds": token.age_seconds,
-                    "holders": token.holders,
-                    "first50_pct": _decimal(token.first50_pct),
-                },
+        if not is_flow_gate:
+            components.append(
+                ScoreComponent(
+                    "GENESIS",
+                    25,
+                    {
+                        "age_seconds": token.age_seconds,
+                        "holders": token.holders,
+                        "first50_pct": _decimal(token.first50_pct),
+                    },
+                )
             )
-        )
 
     traction = (
         token.age_seconds is not None
@@ -267,23 +312,29 @@ def evaluate(
     )
     if traction:
         structures.append("TRACTION")
-        components.append(
-            ScoreComponent(
-                "TRACTION",
-                15,
-                {
-                    "age_seconds": token.age_seconds,
-                    "holders": token.holders,
-                    "top10_pct": _decimal(token.top10_pct),
-                },
+        if not is_flow_gate:
+            components.append(
+                ScoreComponent(
+                    "TRACTION",
+                    15,
+                    {
+                        "age_seconds": token.age_seconds,
+                        "holders": token.holders,
+                        "top10_pct": _decimal(token.top10_pct),
+                    },
+                )
             )
-        )
 
-    if _between(token.top10_pct, Decimal("20"), Decimal("25")):
+    top10_quality = _between(
+        token.top10_pct,
+        rule.quality_top10_min_pct,
+        rule.quality_top10_max_pct,
+    )
+    if top10_quality and not is_flow_gate:
         components.append(
             ScoreComponent("TOP10_BALANCED", 5, {"top10_pct": _decimal(token.top10_pct)})
         )
-    if token.safe_pct is not None and token.safe_pct >= Decimal("35"):
+    if not is_flow_gate and token.safe_pct is not None and token.safe_pct >= Decimal("35"):
         components.append(ScoreComponent("SAFE_35", 5, {"safe_pct": _decimal(token.safe_pct)}))
 
     if verified_mc and token.call_mc_usd:
@@ -302,14 +353,110 @@ def evaluate(
 
     x2_times = [outcome.event_ts for outcome in visible_outcomes if outcome.multiple >= 2]
     x2_ts = min(x2_times) if x2_times else None
+    early_whales: list[WhaleEvent] = []
     early_by_key: dict[str, WhaleEvent] = {}
     for whale in visible_whales:
         elapsed = (whale.event_ts - token.call_ts).total_seconds()
         before_x2 = x2_ts is None or whale.event_ts < x2_ts
-        if elapsed < 0 or elapsed > 900 or not before_x2:
+        if elapsed < 0 or elapsed > rule.whale_window_seconds or not before_x2:
             continue
+        early_whales.append(whale)
         early_by_key.setdefault(whale.distinct_key(), whale)
     distinct = tuple(sorted(early_by_key.values(), key=lambda whale: whale.event_ts))
+
+    if is_flow_gate:
+        quality_structure = genesis or top10_quality
+        if top10_quality and "TOP10_QUALITY" not in structures:
+            structures.append("TOP10_QUALITY")
+        if quality_structure:
+            components.append(
+                ScoreComponent(
+                    "V2_QUALITY_STRUCTURE",
+                    25,
+                    {
+                        "genesis": genesis,
+                        "top10_quality": top10_quality,
+                        "top10_pct": _decimal(token.top10_pct),
+                    },
+                )
+            )
+        whale_flow_sol = sum(
+            (whale.sol_amount or Decimal("0") for whale in early_whales),
+            Decimal("0"),
+        )
+        whale_flow_ready = whale_flow_sol >= rule.min_whale_flow_sol
+        if whale_flow_ready:
+            components.append(
+                ScoreComponent(
+                    "V2_WHALE_FLOW_GATE",
+                    35,
+                    {
+                        "sol_amount": _decimal(whale_flow_sol),
+                        "minimum_sol": _decimal(rule.min_whale_flow_sol),
+                        "window_seconds": rule.whale_window_seconds,
+                        "distinct_count": len(distinct),
+                    },
+                )
+            )
+        elif early_whales:
+            components.append(
+                ScoreComponent(
+                    "V2_WHALE_FLOW_PENDING",
+                    0,
+                    {
+                        "sol_amount": _decimal(whale_flow_sol),
+                        "minimum_sol": _decimal(rule.min_whale_flow_sol),
+                        "window_seconds": rule.whale_window_seconds,
+                    },
+                )
+            )
+        if (
+            quality_structure
+            and whale_flow_ready
+            and len(distinct) >= rule.confirmation_distinct_whales
+        ):
+            components.append(
+                ScoreComponent(
+                    "V2_MULTI_WHALE_CONFIRMED",
+                    10,
+                    {
+                        "distinct_count": len(distinct),
+                        "minimum_count": rule.confirmation_distinct_whales,
+                    },
+                )
+            )
+        if ratio is not None and ratio > rule.soft_chase_ratio:
+            components.append(
+                ScoreComponent(
+                    "V2_CHASE_WARNING_1_5X",
+                    0,
+                    {"ratio": _decimal(ratio)},
+                )
+            )
+
+        raw_score = sum(component.value for component in components)
+        score = max(0, min(100, raw_score))
+        if hard_reject:
+            decision = Decision.REJECTED
+        elif quality_structure and whale_flow_ready:
+            decision = Decision.STRONG
+        elif quality_structure or early_whales:
+            decision = Decision.WATCH
+        else:
+            decision = Decision.NONE
+        return ScoreEvaluation(
+            rule_version=rule.version,
+            evaluated_at=evaluation_time,
+            score=score,
+            decision=decision,
+            hard_reject=hard_reject,
+            components=tuple(components),
+            hard_checks=tuple(checks),
+            structures=tuple(structures),
+            input_hash=_input_hash(
+                token, visible_market, visible_whales, visible_outcomes, rule, evaluation_time
+            ),
+        )
 
     if distinct:
         elapsed = int((distinct[0].event_ts - token.call_ts).total_seconds())

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     helius_webhook_secret: SecretStr | None = None
     webhook_max_skew_seconds: int = 300
-    active_rule_version: str = "GEM_FILTER_V1"
+    active_rule_version: str = "GEM_FILTER_V2_FLOW_8"
 
     @field_validator(
         "telegram_api_id",

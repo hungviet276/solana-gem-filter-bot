@@ -54,6 +54,77 @@ class BacktestTests(unittest.TestCase):
         self.assertEqual(result.precision_x5, 1.0)
         self.assertIsNotNone(result.warning)
 
+    def test_replay_keeps_first_valid_alert_before_later_rejection(self) -> None:
+        at = datetime(2026, 7, 1, tzinfo=UTC)
+        token = TokenCall(
+            contract="A" * 44,
+            ticker="FIRST",
+            token_name="First valid alert",
+            call_ts=at,
+            call_mc_usd=Decimal("10000"),
+            age_seconds=60,
+            holders=100,
+            top10_pct=Decimal("18"),
+            bundled_pct=Decimal("3"),
+            first50_pct=Decimal("60"),
+            jeeters_pct=Decimal("4"),
+            quickflip_pct=Decimal("2"),
+            snipers_pct=Decimal("1"),
+            insiders_pct=Decimal("2"),
+            safe_pct=Decimal("40"),
+            dev_pct=Decimal("0"),
+            poor_pct=Decimal("3"),
+        )
+        first_whale = WhaleEvent(
+            "Opal", "opal", at + timedelta(minutes=2), Decimal("6"), Decimal("11000")
+        )
+        second_whale = WhaleEvent(
+            "Ansem", "ansem", at + timedelta(minutes=10), Decimal("6"), Decimal("25000")
+        )
+        snapshots = (
+            MarketSnapshot(
+                at, at, "test", "pair", "raydium", Decimal("10000"), None, Decimal("10000")
+            ),
+            MarketSnapshot(
+                first_whale.event_ts,
+                first_whale.event_ts,
+                "test",
+                "pair",
+                "raydium",
+                Decimal("11000"),
+                None,
+                Decimal("10000"),
+            ),
+            MarketSnapshot(
+                second_whale.event_ts,
+                second_whale.event_ts,
+                "test",
+                "pair",
+                "raydium",
+                Decimal("25000"),
+                None,
+                Decimal("10000"),
+            ),
+        )
+        outcome = MultipleEvent(5, at + timedelta(minutes=20), Decimal("50000"), 1200)
+
+        result = run_backtest(
+            [
+                ReplayCase(
+                    token,
+                    snapshots,
+                    (first_whale, second_whale),
+                    (outcome,),
+                )
+            ]
+        )
+
+        self.assertEqual(result.alerted, 1)
+        self.assertEqual(
+            result.rows[0]["alerted_at"],
+            first_whale.event_ts.isoformat(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,7 +12,7 @@ Snapshot mới nhất phải còn freshness. Vì vậy backtest chỉ tái hiệ
 
 ## Dataset split
 
-- `IN_SAMPLE`: dữ liệu đã dùng xây GEM_FILTER_V1.
+- `IN_SAMPLE`: dữ liệu đã dùng xây rule đang đánh giá (V1 hoặc V2).
 - `VALIDATION`: tuning có kiểm soát, không publish theo một metric đơn lẻ.
 - `OUT_OF_SAMPLE`: paper call mới, dùng để quyết định hiệu quả thật.
 
@@ -21,10 +21,12 @@ Dashboard/API luôn trả sample size. Dưới 50 Strong đủ quan sát, hệ t
 ## CLI offline
 
 ```bash
-gem-filter-backtest replay_cases.json --rule config/rules/GEM_FILTER_V1.json --output result.json
+gem-filter-backtest replay_cases.json --rule config/rules/GEM_FILTER_V2_FLOW_8.json --output result.json
 ```
 
-Input là danh sách `{token, snapshots, whales, outcomes}` với timestamp có timezone. Output gồm coverage, precision x2/x5/x10, median time-to-x2, warning và input hash từng row.
+Input là danh sách `{token, snapshots, whales, outcomes}` với timestamp có timezone. Replay
+ghi nhận alert hợp lệ đầu tiên trước x2, không chọn score cao nhất trong tương lai. Output gồm
+coverage, precision x2/x5/x10, median time-to-x2, warning và input hash từng row.
 
 ## Rule lifecycle
 

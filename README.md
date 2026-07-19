@@ -10,7 +10,10 @@ Hệ thống read-only để thu thập call token Solana từ Telegram, chuẩn
 - Raw event bất biến được commit trước khi parse; versioned parser, warning cho field thiếu, orphan retry.
 - State machine theo contract/source message; cửa sổ 5/15/30/60 phút, distinct whale, before-x2 và expiry.
 - DEX Screener pool selection theo quote-token + liquidity; snapshot tại call/whale/alert gate/mốc thời gian.
-- Rule `GEM_FILTER_V1`: Genesis, Traction, risk, early whale, convergence và anti-chase; explainability + input hash.
+- Rule mặc định `GEM_FILTER_V2_FLOW_8`: bắt buộc cấu trúc Top10/Genesis, tổng whale
+  flow tối thiểu 8 SOL trong 15 phút và hard anti-chase 2x.
+- Rule `GEM_FILTER_V1` vẫn được giữ bất biến để rollback; mọi evaluation có
+  explainability + input hash.
 - Transactional outbox, alert idempotency, fresh send gate, rate limit, kill switch và disclaimer.
 - Paper outcome x2/x3/x5/x10, event-time backtest không leakage, dataset split và confidence warning.
 - FastAPI, RBAC, dashboard, rule draft/simulate/publish/rollback, source/subscription/whale profile/audit APIs.

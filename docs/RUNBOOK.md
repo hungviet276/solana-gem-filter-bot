@@ -39,6 +39,11 @@ curl -fsS http://localhost:8080/health/ready
 
 Gọi `POST /api/v1/rules/{known-good-id}/rollback?reason=...` bằng Admin. Kiểm tra audit log, active config và chỉ call mới dùng rule rollback. Call đang mở giữ phiên bản gắn lúc tạo.
 
+Migration `0003` publish `GEM_FILTER_V2_FLOW_8` và archive rule đang active. Đặt
+`ACTIVE_RULE_VERSION=GEM_FILTER_V2_FLOW_8` để bootstrap trên database mới nhất quán. Khi cần
+rollback nhanh, publish lại immutable version `GEM_FILTER_V1`; không sửa config của version đã
+publish.
+
 ## Orphan/failed event
 
 Scheduler retry orphan theo `(source_id, reply_to_message_id)`. Xem whale/multiple có `token_call_id IS NULL`; backfill call gốc rồi chờ scheduler. Outbox `DEAD` cần đọc `last_error`; alert `MANUAL_REVIEW` không được resend mù.

@@ -1,5 +1,6 @@
 {
   "version": "GEM_FILTER_V1",
+  "strategy": "V1_SCORE",
   "max_snapshot_age_seconds": 20,
   "expiry_seconds": 3600,
   "mc_discrepancy_warn_pct": "30",

@@ -198,6 +198,12 @@ class RuleTests(unittest.TestCase):
             RuleConfig(soft_chase_ratio=Decimal("2.1"), hard_chase_ratio=Decimal("2"))
         with self.assertRaises(ValueError):
             RuleConfig(max_snapshot_age_seconds=0)
+        with self.assertRaises(ValueError):
+            RuleConfig(strategy="UNKNOWN")
+        with self.assertRaises(ValueError):
+            RuleConfig(min_whale_flow_sol=Decimal("0"))
+        with self.assertRaises(ValueError):
+            RuleConfig(quality_top10_min_pct=Decimal("30"), quality_top10_max_pct=Decimal("20"))
 
 
 if __name__ == "__main__":

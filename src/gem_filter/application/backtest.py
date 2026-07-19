@@ -6,7 +6,14 @@ from datetime import datetime
 from statistics import median
 from typing import cast
 
-from gem_filter.domain.models import Decision, MarketSnapshot, MultipleEvent, TokenCall, WhaleEvent
+from gem_filter.domain.models import (
+    Decision,
+    MarketSnapshot,
+    MultipleEvent,
+    ScoreEvaluation,
+    TokenCall,
+    WhaleEvent,
+)
 from gem_filter.domain.rules import DEFAULT_RULE, RuleConfig, evaluate
 
 
@@ -40,22 +47,6 @@ def run_backtest(cases: Iterable[ReplayCase], rule: RuleConfig = DEFAULT_RULE) -
     rows: list[dict[str, object]] = []
     time_to_x2: list[float] = []
     for case in cases:
-        event_times = sorted(
-            {case.token.call_ts}
-            | {event.event_ts for event in case.whales}
-            | {snapshot.provider_ts for snapshot in case.snapshots}
-        )
-        best = None
-        for at in event_times:
-            snapshot = _latest_snapshot(case.snapshots, at)
-            result = evaluate(
-                case.token, snapshot, case.whales, case.outcomes, rule, evaluation_time=at
-            )
-            if best is None or result.score > best.score:
-                best = result
-        if best is None:
-            continue
-        max_multiple = max((event.multiple for event in case.outcomes), default=1)
         x2 = next(
             (
                 event
@@ -64,19 +55,44 @@ def run_backtest(cases: Iterable[ReplayCase], rule: RuleConfig = DEFAULT_RULE) -
             ),
             None,
         )
+        event_times = sorted(
+            {case.token.call_ts}
+            | {event.event_ts for event in case.whales}
+            | {snapshot.provider_ts for snapshot in case.snapshots}
+        )
+        first_alert: ScoreEvaluation | None = None
+        last_evaluation: ScoreEvaluation | None = None
+        alerted_at: datetime | None = None
+        for at in event_times:
+            if x2 is not None and at >= x2.event_ts:
+                break
+            snapshot = _latest_snapshot(case.snapshots, at)
+            result = evaluate(
+                case.token, snapshot, case.whales, case.outcomes, rule, evaluation_time=at
+            )
+            last_evaluation = result
+            if result.decision in {Decision.EARLY, Decision.STRONG}:
+                first_alert = result
+                alerted_at = at
+                break
+        selected = first_alert or last_evaluation
+        if selected is None:
+            continue
+        max_multiple = max((event.multiple for event in case.outcomes), default=1)
         if x2:
             time_to_x2.append((x2.event_ts - case.token.call_ts).total_seconds())
-        alerted = best.decision in {Decision.EARLY, Decision.STRONG}
+        alerted = first_alert is not None
         rows.append(
             {
                 "contract": case.token.contract,
                 "ticker": case.token.ticker,
                 "dataset_split": case.token.dataset_split.value,
-                "score": best.score,
-                "decision": best.decision.value,
+                "score": selected.score,
+                "decision": selected.decision.value,
                 "alerted": alerted,
+                "alerted_at": alerted_at.isoformat() if alerted_at else None,
                 "max_multiple": max_multiple,
-                "input_hash": best.input_hash,
+                "input_hash": selected.input_hash,
             }
         )
     samples = len(rows)

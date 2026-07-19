@@ -80,6 +80,10 @@ def run() -> None:
             "poor_hard_limit_pct",
             "soft_chase_ratio",
             "hard_chase_ratio",
+            "min_whale_flow_sol",
+            "quality_top10_min_pct",
+            "quality_top10_max_pct",
+            "genesis_first50_min_pct",
         }
         for key in decimal_fields & values.keys():
             values[key] = _dec(values[key])
