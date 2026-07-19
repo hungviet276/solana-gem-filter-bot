@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from gem_filter.application.live_evaluation import evaluate_live
 from gem_filter.config import Settings
 from gem_filter.domain.alerts import render_alert
 from gem_filter.domain.models import (
@@ -258,13 +259,12 @@ class ProcessingService:
             ).all()
             domain_token = _domain_token(token)
             domain_whales = tuple(_domain_whale(item) for item in whales)
-            evaluation = evaluate(
+            evaluation = evaluate_live(
                 domain_token,
                 market,
                 domain_whales,
                 tuple(_domain_multiple(item) for item in outcomes),
                 rule,
-                evaluation_time=datetime.now(tz=UTC),
             )
             score = ScoreEvaluationRecord(
                 token_call_id=token.id,
@@ -576,7 +576,6 @@ class ProcessingService:
         rule: RuleConfig,
         capture_reason: str,
     ) -> uuid.UUID:
-        now = datetime.now(tz=UTC)
         blacklist = await session.scalar(
             select(ContractBlacklist).where(
                 ContractBlacklist.contract == token.contract,
@@ -584,11 +583,12 @@ class ProcessingService:
             )
         )
         if blacklist is not None:
+            evaluated_at = datetime.now(tz=UTC)
             score_record = ScoreEvaluationRecord(
                 token_call_id=token.id,
                 market_snapshot_id=None,
                 rule_version=rule.version,
-                evaluated_at=now,
+                evaluated_at=evaluated_at,
                 score=0,
                 decision=Decision.REJECTED.value,
                 hard_reject=True,
@@ -657,9 +657,7 @@ class ProcessingService:
         domain_token = _domain_token(token)
         domain_whales = tuple(_domain_whale(record) for record in whale_records)
         domain_outcomes = tuple(_domain_multiple(record) for record in multiple_records)
-        evaluation = evaluate(
-            domain_token, market, domain_whales, domain_outcomes, rule, evaluation_time=now
-        )
+        evaluation = evaluate_live(domain_token, market, domain_whales, domain_outcomes, rule)
         score_record = ScoreEvaluationRecord(
             token_call_id=token.id,
             market_snapshot_id=market_record.id if market_record else None,
@@ -701,7 +699,7 @@ class ProcessingService:
             market,
             domain_whales,
             domain_outcomes,
-            now,
+            evaluation.evaluated_at,
         )
         return score_record.id
 
