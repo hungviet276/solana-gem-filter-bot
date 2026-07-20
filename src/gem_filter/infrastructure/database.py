@@ -150,12 +150,19 @@ class WhaleEventRecord(Base, TimestampMixin):
     __tablename__ = "whale_events"
     __table_args__ = (
         UniqueConstraint("raw_event_id", name="uq_whale_raw_event"),
+        UniqueConstraint(
+            "source_id",
+            "source_message_id",
+            name="uq_whale_source_message",
+        ),
         Index("ix_whale_token_time", "token_call_id", "event_ts"),
     )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     raw_event_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("raw_telegram_events.id"), nullable=False
     )
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_sources.id"), nullable=False)
+    source_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     token_call_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("token_calls.id"))
     whale_label: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_label: Mapped[str] = mapped_column(String(255), nullable=False)

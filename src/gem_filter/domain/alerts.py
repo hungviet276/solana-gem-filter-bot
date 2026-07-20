@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from .models import MarketSnapshot, ScoreEvaluation, TokenCall, WhaleEvent
+from .models import (
+    MarketSnapshot,
+    ScoreEvaluation,
+    TokenCall,
+    WhaleEvent,
+    deduplicate_whale_events,
+)
 
 DISCLAIMER = "Phân tích rủi ro cao, không phải khuyến nghị tài chính; không bảo đảm kết quả."
 
@@ -49,9 +55,12 @@ def render_alert(
         f"| Ratio: {ratio_text}",
         f"• Holders: {holders} | Top10: {top10}% | Bundled: {bundled}% | Dev: {dev}%",
     ]
-    if whales:
-        lines.extend(["", "WHALE CONVERGENCE"])
-        for whale in whales[:5]:
+    unique_whales = deduplicate_whale_events(whales)
+    if unique_whales:
+        distinct_whales = {whale.distinct_key() for whale in unique_whales}
+        whale_heading = "WHALE CONVERGENCE" if len(distinct_whales) >= 2 else "WHALE FLOW"
+        lines.extend(["", whale_heading])
+        for whale in unique_whales[:5]:
             elapsed = int((whale.event_ts - token.call_ts).total_seconds() // 60)
             lines.append(
                 f"• {whale.normalized_label.upper()}: {whale.sol_amount or 'N/A'} SOL "

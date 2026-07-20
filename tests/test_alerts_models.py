@@ -70,7 +70,8 @@ class AlertAndModelTests(unittest.TestCase):
         )
         rendered = render_alert(self.token, self.snapshot(), (whale,), evaluation)
         self.assertIn("STRONG", rendered)
-        self.assertIn("WHALE CONVERGENCE", rendered)
+        self.assertIn("WHALE FLOW", rendered)
+        self.assertNotIn("WHALE CONVERGENCE", rendered)
         self.assertIn("WHALE_1_5M", rendered)
         self.assertIn(DISCLAIMER, rendered)
 

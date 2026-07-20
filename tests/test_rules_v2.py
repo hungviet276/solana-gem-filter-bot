@@ -50,13 +50,21 @@ def market(at: datetime, mc: str = "63300") -> MarketSnapshot:
     )
 
 
-def whale(label: str, seconds: int, sol: str) -> WhaleEvent:
+def whale(
+    label: str,
+    seconds: int,
+    sol: str,
+    *,
+    source_message_id: int | None = None,
+) -> WhaleEvent:
     return WhaleEvent(
         label=label,
         normalized_label=label.casefold(),
         event_ts=BASE + timedelta(seconds=seconds),
         sol_amount=Decimal(sol),
         whale_mc_usd=Decimal("63300"),
+        source_id="source-channel" if source_message_id is not None else None,
+        source_message_id=source_message_id,
     )
 
 
@@ -85,6 +93,8 @@ class FlowGateRuleTests(unittest.TestCase):
             result,
         )
         self.assertIn("Total flow: 8.47 SOL/15m | Distinct: 1", rendered)
+        self.assertIn("WHALE FLOW", rendered)
+        self.assertNotIn("WHALE CONVERGENCE", rendered)
 
     def test_small_whales_remain_watch_for_known_false_positives(self) -> None:
         cases = (
@@ -156,8 +166,8 @@ class FlowGateRuleTests(unittest.TestCase):
             token(),
             market(at),
             (
-                whale("OPAL", 120, "4"),
-                whale("opal", 240, "4.5"),
+                whale("OPAL", 120, "4", source_message_id=101),
+                whale("opal", 240, "4.5", source_message_id=102),
             ),
             (),
             FLOW_8_RULE,
@@ -168,15 +178,41 @@ class FlowGateRuleTests(unittest.TestCase):
         self.assertIn("V2_WHALE_FLOW_GATE", result.reason_codes)
         self.assertNotIn("V2_MULTI_WHALE_CONFIRMED", result.reason_codes)
 
-    def test_two_distinct_whales_add_confirmation(self) -> None:
-        at = BASE + timedelta(seconds=300)
+    def test_edited_revision_does_not_double_whale_flow_or_alert_line(self) -> None:
+        at = BASE + timedelta(seconds=120)
+        original = whale("ANSEM", 120, "4.1", source_message_id=501)
+        edited = whale("ANSEM", 120, "4.2", source_message_id=501)
+
         result = evaluate(
             token(),
             market(at),
-            (
-                whale("OPAL", 120, "4"),
-                whale("ANSEM", 300, "4.5"),
-            ),
+            (original, edited),
+            (),
+            FLOW_8_RULE,
+            evaluation_time=at,
+        )
+
+        self.assertEqual(result.decision, Decision.WATCH)
+        pending = next(
+            component
+            for component in result.components
+            if component.code == "V2_WHALE_FLOW_PENDING"
+        )
+        self.assertEqual(pending.evidence["sol_amount"], "4.2")
+        rendered = render_alert(token(), market(at), (original, edited), result)
+        self.assertEqual(rendered.count("ANSEM:"), 1)
+        self.assertIn("WHALE FLOW", rendered)
+
+    def test_two_distinct_whales_add_confirmation(self) -> None:
+        at = BASE + timedelta(seconds=300)
+        whales = (
+            whale("OPAL", 120, "4", source_message_id=201),
+            whale("ANSEM", 300, "4.5", source_message_id=202),
+        )
+        result = evaluate(
+            token(),
+            market(at),
+            whales,
             (),
             FLOW_8_RULE,
             evaluation_time=at,
@@ -185,6 +221,8 @@ class FlowGateRuleTests(unittest.TestCase):
         self.assertEqual(result.score, 70)
         self.assertEqual(result.decision, Decision.STRONG)
         self.assertIn("V2_MULTI_WHALE_CONFIRMED", result.reason_codes)
+        rendered = render_alert(token(), market(at), whales, result)
+        self.assertIn("WHALE CONVERGENCE", rendered)
 
     def test_whales_after_window_or_x2_do_not_open_gate(self) -> None:
         after_window = BASE + timedelta(seconds=901)

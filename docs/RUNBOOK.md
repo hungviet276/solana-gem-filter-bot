@@ -44,6 +44,10 @@ Migration `0003` publish `GEM_FILTER_V2_FLOW_8` và archive rule đang active. �
 rollback nhanh, publish lại immutable version `GEM_FILTER_V1`; không sửa config của version đã
 publish.
 
+Migration `0004` gộp các revision `NEW`/`EDITED` của cùng một Telegram message thành một whale
+event, giữ revision mới nhất và tạo unique constraint `(source_id, source_message_id)`. Nhiều lần
+mua thật của cùng whale vẫn được cộng nếu nằm ở các Telegram message khác nhau.
+
 ## Orphan/failed event
 
 Scheduler retry orphan theo `(source_id, reply_to_message_id)`. Xem whale/multiple có `token_call_id IS NULL`; backfill call gốc rồi chờ scheduler. Outbox `DEAD` cần đọc `last_error`; alert `MANUAL_REVIEW` không được resend mù.

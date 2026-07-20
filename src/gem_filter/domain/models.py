@@ -106,9 +106,33 @@ class WhaleEvent:
     wallet_cluster: str | None = None
     signature: str | None = None
     verification_status: VerificationStatus = VerificationStatus.NOT_REQUESTED
+    source_id: str | None = None
+    source_message_id: int | None = None
 
     def distinct_key(self) -> str:
         return (self.wallet_cluster or self.normalized_label).strip().casefold()
+
+    def event_key(self) -> tuple[str, ...]:
+        """Identify one buy while preserving legitimate repeated buys by the same whale."""
+        if self.source_id is not None and self.source_message_id is not None:
+            return ("telegram", self.source_id, str(self.source_message_id))
+        if self.signature:
+            return ("signature", self.signature.strip().casefold())
+        return (
+            "observed",
+            self.normalized_label.strip().casefold(),
+            self.event_ts.isoformat(),
+            str(self.sol_amount),
+            str(self.whale_mc_usd),
+        )
+
+
+def deduplicate_whale_events(events: tuple[WhaleEvent, ...]) -> tuple[WhaleEvent, ...]:
+    """Keep the latest revision for each logical Telegram message or transaction."""
+    canonical: dict[tuple[str, ...], WhaleEvent] = {}
+    for event in events:
+        canonical[event.event_key()] = event
+    return tuple(sorted(canonical.values(), key=lambda event: event.event_ts))
 
 
 @dataclass(frozen=True, slots=True)

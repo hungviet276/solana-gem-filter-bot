@@ -17,6 +17,7 @@ from .models import (
     ScoreEvaluation,
     TokenCall,
     WhaleEvent,
+    deduplicate_whale_events,
 )
 
 SOLANA_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,64}$")
@@ -171,8 +172,10 @@ def evaluate(
     if evaluation_time.tzinfo is None:
         raise ValueError("evaluation_time must be timezone-aware")
 
-    visible_whales = tuple(
-        sorted((w for w in whales if w.event_ts <= evaluation_time), key=lambda w: w.event_ts)
+    visible_whales = deduplicate_whale_events(
+        tuple(
+            sorted((w for w in whales if w.event_ts <= evaluation_time), key=lambda w: w.event_ts)
+        )
     )
     visible_outcomes = tuple(
         sorted((o for o in outcomes if o.event_ts <= evaluation_time), key=lambda o: o.event_ts)

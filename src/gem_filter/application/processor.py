@@ -485,6 +485,22 @@ class ProcessingService:
         raw: RawTelegramEvent,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        existing = await session.scalar(
+            select(WhaleEventRecord)
+            .where(
+                WhaleEventRecord.source_id == source.id,
+                WhaleEventRecord.source_message_id == raw.source_message_id,
+            )
+            .with_for_update()
+        )
+        if existing is not None:
+            existing_raw = await session.get(RawTelegramEvent, existing.raw_event_id)
+            if existing_raw is not None and existing_raw.revision > raw.revision:
+                DUPLICATE_PREVENTED.labels("whale_stale_revision").inc()
+                return {
+                    "whale_event_id": str(existing.id),
+                    "business_status": "stale_revision",
+                }
         token = None
         if raw.reply_to_message_id is not None:
             token = await session.scalar(
@@ -493,17 +509,33 @@ class ProcessingService:
                     TokenCallRecord.source_message_id == raw.reply_to_message_id,
                 )
             )
-        event = WhaleEventRecord(
-            raw_event_id=raw.id,
-            token_call_id=token.id if token else None,
-            whale_label=payload.get("whale_label", "unknown"),
-            normalized_label=payload.get("normalized_label", "unknown"),
-            sol_amount=_optional_decimal(payload.get("sol_amount")),
-            whale_mc_usd=_optional_decimal(payload.get("whale_mc_usd")),
-            event_ts=raw.event_ts,
-            verification_status="NOT_REQUESTED",
-            orphan_reason=None if token else "CALL_NOT_FOUND_BY_REPLY_TO",
-        )
+        if token is None and existing is not None and existing.token_call_id is not None:
+            token = await session.get(TokenCallRecord, existing.token_call_id)
+        if existing is None:
+            event = WhaleEventRecord(
+                raw_event_id=raw.id,
+                source_id=source.id,
+                source_message_id=raw.source_message_id,
+                token_call_id=token.id if token else None,
+                whale_label=payload.get("whale_label", "unknown"),
+                normalized_label=payload.get("normalized_label", "unknown"),
+                sol_amount=_optional_decimal(payload.get("sol_amount")),
+                whale_mc_usd=_optional_decimal(payload.get("whale_mc_usd")),
+                event_ts=raw.event_ts,
+                verification_status="NOT_REQUESTED",
+                orphan_reason=None if token else "CALL_NOT_FOUND_BY_REPLY_TO",
+            )
+            session.add(event)
+        else:
+            event = existing
+            event.raw_event_id = raw.id
+            event.token_call_id = token.id if token else None
+            event.whale_label = payload.get("whale_label", "unknown")
+            event.normalized_label = payload.get("normalized_label", "unknown")
+            event.sol_amount = _optional_decimal(payload.get("sol_amount"))
+            event.whale_mc_usd = _optional_decimal(payload.get("whale_mc_usd"))
+            event.event_ts = raw.event_ts
+            event.orphan_reason = None if token else "CALL_NOT_FOUND_BY_REPLY_TO"
         if token:
             x2_ts = await session.scalar(
                 select(MultipleEventRecord.event_ts)
@@ -514,7 +546,6 @@ class ProcessingService:
                 .limit(1)
             )
             event.before_x2 = x2_ts is None or raw.event_ts < x2_ts
-        session.add(event)
         await session.flush()
         if token is None:
             ORPHAN_EVENTS.inc()
@@ -911,6 +942,8 @@ def _domain_whale(record: WhaleEventRecord) -> WhaleEvent:
         wallet_cluster=record.wallet_cluster,
         signature=record.signature,
         verification_status=VerificationStatus(record.verification_status),
+        source_id=str(record.source_id),
+        source_message_id=record.source_message_id,
     )
 
 
