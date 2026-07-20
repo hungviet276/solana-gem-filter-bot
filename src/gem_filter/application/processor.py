@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gem_filter.application.live_evaluation import evaluate_live
 from gem_filter.config import Settings
-from gem_filter.domain.alerts import render_alert
+from gem_filter.domain.alerts import render_alert, render_early_candidate_x2
+from gem_filter.domain.early_candidate import (
+    EARLY_CANDIDATE_X2_LEVEL,
+    evaluate_early_candidate_x2,
+)
 from gem_filter.domain.models import (
     DatasetSplit,
     Decision,
@@ -313,6 +317,53 @@ class ProcessingService:
                 ),
             }
 
+    async def prepare_early_candidate_x2_alert(
+        self, alert_id: uuid.UUID
+    ) -> dict[str, Any] | None:
+        """Recheck only initial-call fields; never load market, whale or outcome data."""
+
+        async with self.sessions() as session, session.begin():
+            alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+            if alert is None:
+                raise LookupError("alert not found")
+            if alert.level != EARLY_CANDIDATE_X2_LEVEL:
+                raise ValueError("alert does not belong to the early candidate X2 flow")
+            if alert.status == "SENT":
+                return None
+            if not self.settings.early_candidate_x2_enabled:
+                alert.status = "SUPPRESSED_DISABLED"
+                alert.error = "EARLY_CANDIDATE_X2_ENABLED is false"
+                return None
+            token = await session.get(TokenCallRecord, alert.token_call_id)
+            if token is None:
+                raise LookupError("token call not found")
+            blacklist = await session.scalar(
+                select(ContractBlacklist).where(
+                    ContractBlacklist.contract == token.contract,
+                    ContractBlacklist.active.is_(True),
+                )
+            )
+            if blacklist is not None:
+                alert.status = "BLOCKED_REVALIDATION"
+                alert.error = "Contract was blacklisted before early alert delivery"
+                return None
+            domain_token = _domain_token(token)
+            evaluation = evaluate_early_candidate_x2(domain_token)
+            if not evaluation.matched:
+                alert.status = "BLOCKED_REVALIDATION"
+                alert.error = "Initial-call fields no longer match EARLY_CANDIDATE_X2_V1"
+                return None
+            alert.rendered_text = render_early_candidate_x2(domain_token, evaluation)
+            return {
+                "alert_id": str(alert.id),
+                "chat_id": alert.destination_chat_id,
+                "text": alert.rendered_text,
+                "level": alert.level,
+                "contract": token.contract,
+                "chart_url": f"https://dexscreener.com/solana/{token.contract}",
+                "details_url": None,
+            }
+
     async def process(self, envelope: TelegramEnvelope) -> dict[str, Any]:
         if envelope.event_ts.tzinfo is None:
             raise ValueError("event_ts must be timezone-aware")
@@ -471,10 +522,12 @@ class ProcessingService:
                 reason="CALL_PARSED",
             )
         )
+        early_candidate_x2_queued = await self._queue_early_candidate_x2(session, token)
         evaluation_id = await self._snapshot_evaluate_and_queue(session, token, rule, "CALL")
         return {
             "token_call_id": str(token.id),
             "score_evaluation_id": str(evaluation_id),
+            "early_candidate_x2_queued": early_candidate_x2_queued,
             "business_status": token.status,
         }
 
@@ -843,6 +896,8 @@ class ProcessingService:
         chat_id: str,
         level: str,
         text: str,
+        *,
+        topic: str = "TELEGRAM_ALERT",
     ) -> None:
         existing = await session.scalar(
             select(AlertRecord).where(
@@ -866,11 +921,67 @@ class ProcessingService:
         await session.flush()
         session.add(
             OutboxEvent(
-                topic="TELEGRAM_ALERT",
+                topic=topic,
                 idempotency_key=f"alert:{token.id}:{level}:{chat_id}",
                 payload={"alert_id": str(alert.id), "token_call_id": str(token.id)},
             )
         )
+
+    async def _queue_early_candidate_x2(
+        self,
+        session: AsyncSession,
+        token: TokenCallRecord,
+    ) -> bool:
+        """Queue the independent call-only signal before legacy market/whale evaluation."""
+
+        if (
+            not self.settings.early_candidate_x2_enabled
+            or self.settings.alerts_kill_switch
+            or not self.settings.early_candidate_x2_chat_ids
+        ):
+            return False
+        blacklist = await session.scalar(
+            select(ContractBlacklist).where(
+                ContractBlacklist.contract == token.contract,
+                ContractBlacklist.active.is_(True),
+            )
+        )
+        if blacklist is not None:
+            return False
+        domain_token = _domain_token(token)
+        evaluation = evaluate_early_candidate_x2(domain_token)
+        if not evaluation.matched:
+            return False
+        evaluated_at = datetime.now(tz=UTC)
+        score = ScoreEvaluationRecord(
+            token_call_id=token.id,
+            market_snapshot_id=None,
+            rule_version=evaluation.rule_version,
+            evaluated_at=evaluated_at,
+            score=100,
+            decision=EARLY_CANDIDATE_X2_LEVEL,
+            hard_reject=False,
+            components=[],
+            hard_checks=[check.as_record() for check in evaluation.checks],
+            structures=["INITIAL_CALL_ONLY", "NO_WHALE_DATA", "EARLY_CANDIDATE_X2"],
+            input_hash=evaluation.input_hash,
+            shadow=False,
+        )
+        session.add(score)
+        await session.flush()
+        SCORE_EVALUATIONS.labels(EARLY_CANDIDATE_X2_LEVEL, evaluation.rule_version).inc()
+        text = render_early_candidate_x2(domain_token, evaluation)
+        for chat_id in set(self.settings.early_candidate_x2_chat_ids):
+            await self._queue_alert(
+                session,
+                token,
+                score,
+                chat_id,
+                EARLY_CANDIDATE_X2_LEVEL,
+                text,
+                topic="TELEGRAM_EARLY_X2_ALERT",
+            )
+        return True
 
     async def _audit(
         self,

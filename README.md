@@ -72,6 +72,22 @@ Lần đầu đăng nhập MTProto, Compose chạy `telegram-session-init` một
 ghi volume session cho user không đặc quyền `app`. Không chạy `docker compose down -v`
 nếu muốn giữ phiên đăng nhập Telegram và dữ liệu PostgreSQL.
 
+### Cảnh báo EARLY CANDIDATE X2 độc lập
+
+Luồng này chỉ dùng dữ liệu xuất hiện trong bài call đầu tiên, không đọc whale, market snapshot
+hoặc kết quả x2 để quyết định gửi. Bật và chọn channel đích riêng trong `.env`:
+
+```dotenv
+EARLY_CANDIDATE_X2_ENABLED=true
+EARLY_CANDIDATE_X2_DESTINATION_CHAT_IDS=-1001234567890
+```
+
+Rule `EARLY_CANDIDATE_X2_V1` yêu cầu đồng thời: Jeeters 10–20%, Poor ≤15%,
+Top10 20–30%, Dev <10%, Bundled <25% và Snipers <15%. Cảnh báo dùng level, destination,
+outbox topic, revalidation và rate-limit namespace riêng; luồng `EARLY`/`STRONG` cũ không bị
+thay đổi. Tin nhắn có nút Search X/Twitter và Check Mevx. `ALERTS_KILL_SWITCH=true` vẫn dừng
+cả hai luồng trong tình huống khẩn cấp.
+
 ## Import lịch sử
 
 ```powershell

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import html
 from decimal import Decimal
 
+from .early_candidate import EarlyCandidateEvaluation
 from .models import (
     MarketSnapshot,
     ScoreEvaluation,
@@ -11,6 +13,9 @@ from .models import (
 )
 
 DISCLAIMER = "Phân tích rủi ro cao, không phải khuyến nghị tài chính; không bảo đảm kết quả."
+EARLY_DISCLAIMER = (
+    "Cảnh báo sớm chỉ để nghiên cứu/paper tracking; không phải tín hiệu mua và không bảo đảm x2."
+)
 
 
 def _money(value: Decimal | None) -> str:
@@ -21,6 +26,67 @@ def _money(value: Decimal | None) -> str:
     if value >= Decimal("1000"):
         return f"${value / Decimal('1000'):.1f}K"
     return f"${value:.2f}"
+
+
+def render_early_candidate_x2(
+    token: TokenCall,
+    evaluation: EarlyCandidateEvaluation,
+) -> str:
+    ticker = html.escape(token.ticker, quote=False)
+    token_name = html.escape(token.token_name, quote=False) if token.token_name else None
+    contract = html.escape(token.contract, quote=False)
+    age = _duration(token.age_seconds)
+    name_suffix = f" ({token_name})" if token_name else ""
+    lines = [
+        "🟠 EARLY CANDIDATE X2 — CALL ĐẦU",
+        f"${ticker}{name_suffix} | Solana",
+        f"Contract: <code>{contract}</code>",
+        "",
+        "⚠️ Chưa có xác nhận whale — đánh giá độc lập từ bài call đầu tiên.",
+        "",
+        "INITIAL CALL",
+        f"• MC: {_money(token.call_mc_usd)} | Age: {age} | Holders: {_value(token.holders)}",
+        f"• Top10: {_pct(token.top10_pct)} | Jeeters: {_pct(token.jeeters_pct)} "
+        f"| Poor: {_pct(token.poor_pct)}",
+        f"• Bundled: {_pct(token.bundled_pct)} | Snipers: {_pct(token.snipers_pct)} "
+        f"| Dev: {_pct(token.dev_pct)}",
+        "",
+        "RULE MATCH",
+    ]
+    labels = {
+        "JEETERS_10_20": "Jeeters 10–20%",
+        "POOR_MAX_15": "Poor ≤15%",
+        "TOP10_20_30": "Top10 20–30%",
+        "DEV_BELOW_10": "Dev <10%",
+        "BUNDLED_BELOW_25": "Bundled <25%",
+        "SNIPERS_BELOW_15": "Snipers <15%",
+    }
+    lines.extend(f"✓ {labels[check.code]}" for check in evaluation.checks if check.passed)
+    lines.extend(
+        [
+            "",
+            "Backtest tham khảo: 31/56 call đạt x2 (55,36%); mẫu nhỏ, kết quả có thể thay đổi.",
+            EARLY_DISCLAIMER,
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "N/A"
+    minutes, remaining_seconds = divmod(seconds, 60)
+    if minutes:
+        return f"{minutes}m{remaining_seconds}s" if remaining_seconds else f"{minutes}m"
+    return f"{remaining_seconds}s"
+
+
+def _value(value: object | None) -> str:
+    return str(value) if value is not None else "N/A"
+
+
+def _pct(value: Decimal | None) -> str:
+    return f"{value}%" if value is not None else "N/A"
 
 
 def render_alert(

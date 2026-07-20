@@ -13,6 +13,17 @@ curl -fsS http://localhost:8080/health/ready
 
 Đặt `ALERTS_KILL_SWITCH=true` trong secret/config runtime và restart worker. Reader/API vẫn lưu raw event. Kiểm tra `outbox_events`, provider freshness và parser health trước khi bật lại.
 
+## EARLY CANDIDATE X2
+
+- Bật/tắt riêng bằng `EARLY_CANDIDATE_X2_ENABLED`.
+- Channel đích riêng nằm trong `EARLY_CANDIDATE_X2_DESTINATION_CHAT_IDS`.
+- Nếu không khai báo channel đích, call vẫn được xử lý nhưng không tạo cảnh báo sớm.
+- Outbox topic phải là `TELEGRAM_EARLY_X2_ALERT`; alert level phải là
+  `EARLY_CANDIDATE_X2`.
+- Luồng này không được gọi market provider hoặc truy vấn whale/outcome tại send gate.
+- Chống trùng theo `(token_call_id, EARLY_CANDIDATE_X2, destination_chat_id)`.
+- `ALERTS_KILL_SWITCH` là công tắc khẩn cấp chung và có quyền ưu tiên cao nhất.
+
 ## Reader mất kết nối
 
 1. Kiểm tra network và log reader.

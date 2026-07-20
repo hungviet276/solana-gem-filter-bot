@@ -18,6 +18,7 @@ from gem_filter.application.processor import (
     _rule_from_payload,
 )
 from gem_filter.config import get_settings
+from gem_filter.domain.models import MarketSnapshot
 from gem_filter.domain.onchain import verify_enhanced_swap_buy
 from gem_filter.domain.parser import parse_message
 from gem_filter.infrastructure.database import (
@@ -120,6 +121,8 @@ class Worker:
             await self.processor.process_raw(uuid.UUID(payload["raw_event_id"]))
         elif topic == "TELEGRAM_ALERT":
             await self._send_alert(uuid.UUID(payload["alert_id"]))
+        elif topic == "TELEGRAM_EARLY_X2_ALERT":
+            await self._send_early_candidate_x2_alert(uuid.UUID(payload["alert_id"]))
         elif topic == "BACKTEST":
             await self._backtest(uuid.UUID(payload["backtest_run_id"]))
         elif topic == "HELIUS_EVENT":
@@ -164,6 +167,53 @@ class Worker:
         except Exception:
             # A timeout after Telegram accepted the request is ambiguous. Do not auto-resend and
             # risk spam; require reconciliation via the operations queue.
+            async with self.sessions() as session, session.begin():
+                alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+                if alert:
+                    alert.status = "MANUAL_REVIEW"
+                    alert.error = "Ambiguous Telegram delivery; auto-retry disabled"
+            raise
+        async with self.sessions() as session, session.begin():
+            alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+            if alert:
+                alert.status = "SENT"
+                alert.telegram_message_id = message_id
+                alert.sent_at = datetime.now(tz=UTC)
+                ALERTS.labels(alert.level, "sent").inc()
+
+    async def _send_early_candidate_x2_alert(self, alert_id: uuid.UUID) -> None:
+        """Independent delivery path for the first-call-only candidate signal."""
+
+        if self.settings.alerts_kill_switch:
+            async with self.sessions() as session, session.begin():
+                alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+                if alert:
+                    alert.status = "SUPPRESSED_KILL_SWITCH"
+            return
+        gate = await self.processor.prepare_early_candidate_x2_alert(alert_id)
+        if gate is None:
+            return
+        if self.alert_client is None:
+            raise RuntimeError("ALERT_BOT_TOKEN is not configured")
+        if not await self.runtime_store.allow(
+            f"telegram-early-x2:{gate['chat_id']}", self.settings.alert_rate_per_minute
+        ):
+            raise RetryAlert("Telegram early X2 alert rate limit reached; event will retry")
+
+        async with self.sessions() as session, session.begin():
+            alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+            if alert is None or alert.status == "SENT":
+                return
+            alert.status = "SENDING"
+        try:
+            message_id = await self.alert_client.send_message(
+                gate["chat_id"],
+                gate["text"],
+                contract=gate["contract"],
+                chart_url=gate["chart_url"],
+                details_url=None,
+            )
+        except Exception:
             async with self.sessions() as session, session.begin():
                 alert = await session.get(AlertRecord, alert_id, with_for_update=True)
                 if alert:
@@ -373,15 +423,16 @@ class Worker:
                 await self.handle(item)
             except Exception as exc:
                 logger.exception("outbox event failed", extra={"event_id": str(item["id"])})
-                ambiguous = item["topic"] == "TELEGRAM_ALERT" and not isinstance(exc, RetryAlert)
+                ambiguous = item["topic"] in {
+                    "TELEGRAM_ALERT",
+                    "TELEGRAM_EARLY_X2_ALERT",
+                } and not isinstance(exc, RetryAlert)
                 await self.fail(item["id"], exc, item["attempts"], ambiguous=ambiguous)
             else:
                 await self.complete(item["id"])
 
 
-def _snapshot(record: MarketSnapshotRecord):
-    from gem_filter.domain.models import MarketSnapshot
-
+def _snapshot(record: MarketSnapshotRecord) -> MarketSnapshot:
     return MarketSnapshot(
         captured_at=record.captured_at,
         provider_ts=record.provider_ts,

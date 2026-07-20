@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     alerts_kill_switch: bool = False
     alert_rate_per_minute: int = 20
     public_base_url: str = "http://localhost:8080"
+    early_candidate_x2_enabled: bool = False
+    early_candidate_x2_destination_chat_ids: str = ""
 
     market_provider_base_url: str = "https://api.dexscreener.com"
     market_fallback_base_url: str | None = None
@@ -78,6 +80,14 @@ class Settings(BaseSettings):
     def alert_chat_ids(self) -> tuple[str, ...]:
         return tuple(
             value.strip() for value in self.alert_destination_chat_ids.split(",") if value.strip()
+        )
+
+    @property
+    def early_candidate_x2_chat_ids(self) -> tuple[str, ...]:
+        return tuple(
+            value.strip()
+            for value in self.early_candidate_x2_destination_chat_ids.split(",")
+            if value.strip()
         )
 
     @property
