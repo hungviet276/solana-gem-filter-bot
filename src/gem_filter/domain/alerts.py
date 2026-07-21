@@ -57,9 +57,9 @@ def render_early_candidate_x2(
         "JEETERS_10_20": "Jeeters 10–20%",
         "POOR_MAX_15": "Poor ≤15%",
         "TOP10_20_30": "Top10 20–30%",
-        "DEV_BELOW_10": "Dev <10%",
-        "BUNDLED_BELOW_25": "Bundled <25%",
-        "SNIPERS_BELOW_15": "Snipers <15%",
+        "DEV_BELOW_10": "Dev dưới 10%",
+        "BUNDLED_BELOW_25": "Bundled dưới 25%",
+        "SNIPERS_BELOW_15": "Snipers dưới 15%",
     }
     lines.extend(f"✓ {labels[check.code]}" for check in evaluation.checks if check.passed)
     lines.extend(

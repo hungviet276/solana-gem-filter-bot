@@ -38,7 +38,7 @@ from gem_filter.infrastructure.database import (
 )
 from gem_filter.infrastructure.market import create_market_provider
 from gem_filter.infrastructure.runtime_store import PostgresRuntimeStore
-from gem_filter.infrastructure.telegram import TelegramAlertClient
+from gem_filter.infrastructure.telegram import TelegramAlertClient, TelegramAPIError
 from gem_filter.observability import ALERTS, configure_logging
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class Worker:
                 return
             row.last_error = f"{type(error).__name__}: {error}"[:2000]
             row.claimed_at = None
-            if ambiguous or attempts >= 5:
+            if ambiguous or isinstance(error, TelegramAPIError) or attempts >= 5:
                 row.status = "DEAD"
             else:
                 row.status = "PENDING"
@@ -164,6 +164,13 @@ class Worker:
                 chart_url=gate["chart_url"],
                 details_url=gate["details_url"],
             )
+        except TelegramAPIError as exc:
+            async with self.sessions() as session, session.begin():
+                alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+                if alert:
+                    alert.status = "FAILED_TELEGRAM"
+                    alert.error = str(exc)[:2000]
+            raise
         except Exception:
             # A timeout after Telegram accepted the request is ambiguous. Do not auto-resend and
             # risk spam; require reconciliation via the operations queue.
@@ -213,6 +220,13 @@ class Worker:
                 chart_url=gate["chart_url"],
                 details_url=None,
             )
+        except TelegramAPIError as exc:
+            async with self.sessions() as session, session.begin():
+                alert = await session.get(AlertRecord, alert_id, with_for_update=True)
+                if alert:
+                    alert.status = "FAILED_TELEGRAM"
+                    alert.error = str(exc)[:2000]
+            raise
         except Exception:
             async with self.sessions() as session, session.begin():
                 alert = await session.get(AlertRecord, alert_id, with_for_update=True)
@@ -426,7 +440,7 @@ class Worker:
                 ambiguous = item["topic"] in {
                     "TELEGRAM_ALERT",
                     "TELEGRAM_EARLY_X2_ALERT",
-                } and not isinstance(exc, RetryAlert)
+                } and not isinstance(exc, (RetryAlert, TelegramAPIError))
                 await self.fail(item["id"], exc, item["attempts"], ambiguous=ambiguous)
             else:
                 await self.complete(item["id"])

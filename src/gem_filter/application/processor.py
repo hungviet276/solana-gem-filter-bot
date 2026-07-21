@@ -865,6 +865,13 @@ class ProcessingService:
         reason: str,
     ) -> None:
         current = TokenStatus(token.status)
+        if current in {
+            TokenStatus.CONFIRMED,
+            TokenStatus.EXPIRED,
+            TokenStatus.REJECTED,
+            TokenStatus.CLOSED,
+        }:
+            return
         try:
             new_status = transition(current, target)
         except ValueError:

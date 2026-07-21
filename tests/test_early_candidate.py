@@ -93,6 +93,12 @@ def test_early_candidate_alert_is_explicitly_call_only() -> None:
     assert "EARLY CANDIDATE X2 — CALL ĐẦU" in rendered
     assert "Chưa có xác nhận whale" in rendered
     assert "Jeeters 10–20%" in rendered
+    assert "Dev dưới 10%" in rendered
+    assert "Bundled dưới 25%" in rendered
+    assert "Snipers dưới 15%" in rendered
+    assert "<10%" not in rendered
+    assert "<25%" not in rendered
+    assert "<15%" not in rendered
     assert "31/56 call đạt x2 (55,36%)" in rendered
     assert EARLY_DISCLAIMER in rendered
 

@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from gem_filter.infrastructure.telegram import TelegramAlertClient
+from gem_filter.infrastructure.telegram import TelegramAlertClient, TelegramAPIError
 
 
 @pytest.mark.asyncio
@@ -40,3 +40,28 @@ async def test_alert_includes_research_links_for_contract() -> None:
 
     await http_client.aclose()
     assert message_id == 123
+
+
+@pytest.mark.asyncio
+async def test_telegram_error_exposes_description_without_token_or_url() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error_code": 400,
+                "description": "Bad Request: can't parse entities",
+            },
+        )
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    telegram = TelegramAlertClient("super-secret-token", client=http_client)
+
+    with pytest.raises(TelegramAPIError) as captured:
+        await telegram.send_message("-100123", "bad", contract="ABC123")
+
+    await http_client.aclose()
+    message = str(captured.value)
+    assert "can't parse entities" in message
+    assert "super-secret-token" not in message
+    assert "api.telegram.org" not in message

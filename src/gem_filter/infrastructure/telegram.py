@@ -1,10 +1,27 @@
 from __future__ import annotations
 
-import html
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 import httpx
+
+
+class TelegramAPIError(RuntimeError):
+    """A deterministic Telegram Bot API rejection with a token-safe message."""
+
+    def __init__(
+        self,
+        method: str,
+        status_code: int,
+        error_code: int | None,
+        description: str,
+    ) -> None:
+        self.method = method
+        self.status_code = status_code
+        self.error_code = error_code
+        self.description = description
+        code = error_code if error_code is not None else status_code
+        super().__init__(f"Telegram {method} failed ({code}): {description}")
 
 
 class TelegramAlertClient:
@@ -55,11 +72,7 @@ class TelegramAlertClient:
                 "reply_markup": {"inline_keyboard": keyboard},
             },
         )
-        response.raise_for_status()
-        payload = response.json()
-        if not payload.get("ok"):
-            description = html.escape(str(payload.get("description", "unknown error")))
-            raise RuntimeError(f"Telegram sendMessage failed: {description}")
+        payload = _telegram_payload(response, "sendMessage")
         return int(payload["result"]["message_id"])
 
     async def edit_message(self, chat_id: str, message_id: int, text: str) -> None:
@@ -73,7 +86,27 @@ class TelegramAlertClient:
                 "disable_web_page_preview": True,
             },
         )
-        response.raise_for_status()
+        _telegram_payload(response, "editMessageText")
+
+
+def _telegram_payload(response: httpx.Response, method: str) -> dict[str, Any]:
+    try:
+        payload = cast(dict[str, Any], response.json())
+    except ValueError as exc:
+        if response.is_error:
+            raise TelegramAPIError(
+                method,
+                response.status_code,
+                None,
+                "Telegram returned a non-JSON error response",
+            ) from exc
+        raise RuntimeError(f"Telegram {method} returned invalid JSON") from exc
+    if response.is_error or not payload.get("ok"):
+        raw_error_code = payload.get("error_code")
+        error_code = raw_error_code if isinstance(raw_error_code, int) else None
+        description = str(payload.get("description", "unknown Telegram error"))
+        raise TelegramAPIError(method, response.status_code, error_code, description)
+    return payload
 
 
 class TelegramBotReaderClient:
